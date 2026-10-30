@@ -166,6 +166,19 @@ export async function searchCitiesGeocode(query: string): Promise<CityGeocodeRes
   return data.results || [];
 }
 
+export async function geocodeAddressApi(
+  area: string,
+  city: string,
+  landmark?: string
+): Promise<{ lat: number; lng: number; displayName: string }> {
+  const query = new URLSearchParams({ area, city, landmark: landmark || '' });
+  const res = await fetch(`/api/geocode/address?${query.toString()}`);
+  if (!res.ok) {
+    return { lat: 14.7954, lng: 75.3986, displayName: `${area}, ${city}, Karnataka` };
+  }
+  return res.json();
+}
+
 export async function fetchAnalytics(params?: { city?: string; municipality?: string }): Promise<{
   totalComplaints: number;
   statusCounts: Record<string, number>;

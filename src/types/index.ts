@@ -66,6 +66,8 @@ export interface AIAnalysisResult {
     recommendedNextStep: string;
   };
   duplicates: DuplicateMatch[];
+  isUrgentPublicSafety?: boolean;
+  safetyAlerts?: string[];
   isGeminiPowered: boolean;
   modelUsed?: string;
   analysisTimestamp: string;

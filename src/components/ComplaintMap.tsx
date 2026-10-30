@@ -8,6 +8,7 @@
  * - Subtle hotspot circles that do not obscure markers
  * - Zero-complaint empty state display
  * - Tab-change invalidation to prevent grey tile glitches
+ * - "Fit All Markers" automated bounding zoom
  */
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -25,6 +26,8 @@ import {
   X,
   Navigation,
   CheckCircle2,
+  Maximize2,
+  RotateCcw,
 } from 'lucide-react';
 import { Complaint, PriorityLevel, CityGeocodeResult } from '../types/index.ts';
 import { searchCitiesGeocode } from '../services/api.ts';
@@ -38,7 +41,6 @@ interface ComplaintMapProps {
 
 // Map center points
 const KARNATAKA_CENTER: [number, number] = [15.1, 75.7];
-const INDIA_CENTER: [number, number] = [21.7679, 78.8718];
 
 const QUICK_CITIES = [
   { name: 'Karnataka Overview', city: 'All Cities', lat: 15.1, lng: 75.7, zoom: 7 },
@@ -189,6 +191,13 @@ export const ComplaintMap: React.FC<ComplaintMapProps> = ({
     }
   }, [selectedCity, complaints]);
 
+  // Fit all markers button helper
+  const handleFitAllMarkers = () => {
+    if (!mapInstanceRef.current || visibleComplaints.length === 0) return;
+    const bounds = L.latLngBounds(visibleComplaints.map(c => [c.location.lat, c.location.lng]));
+    mapInstanceRef.current.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
+  };
+
   // 4. Render Markers and Hotspots
   useEffect(() => {
     if (!mapInstanceRef.current || !markersLayerRef.current || !hotspotsLayerRef.current) return;
@@ -320,7 +329,7 @@ export const ComplaintMap: React.FC<ComplaintMapProps> = ({
         if (results.length === 0) {
           setSearchError(`No coordinates found for "${searchQuery}". Please check spelling.`);
         }
-      } catch (err) {
+      } catch {
         setSearchError('Geocoding service unavailable. Please retry.');
       } finally {
         setIsSearching(false);
@@ -357,7 +366,7 @@ export const ComplaintMap: React.FC<ComplaintMapProps> = ({
                 setShowDropdown(true);
               }}
               onFocus={() => setShowDropdown(searchResults.length > 0)}
-              placeholder="Search any Indian city (e.g. Haveri, Dharwad, Pune)..."
+              placeholder="Search any Indian city / district (e.g. Haveri, Dharwad, Pune)..."
               className="w-full pl-9 pr-9 py-2 text-xs border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-800"
             />
             {isSearching && (
@@ -392,7 +401,7 @@ export const ComplaintMap: React.FC<ComplaintMapProps> = ({
                       </span>
                     </div>
                     <span className="text-[10px] text-blue-600 font-mono shrink-0">
-                      {res.lat.toFixed(2)}°, {res.lng.toFixed(2)}°
+                      {res.lat.toFixed(2)}°N, {res.lng.toFixed(2)}°E
                     </span>
                   </button>
                 ))}
@@ -444,13 +453,25 @@ export const ComplaintMap: React.FC<ComplaintMapProps> = ({
               <Layers className="w-3.5 h-3.5 text-amber-600" />
               <span>Hotspots</span>
             </button>
+
+            {/* Fit All Markers Button */}
+            {visibleComplaints.length > 0 && (
+              <button
+                onClick={handleFitAllMarkers}
+                title="Fit all complaint markers within map view"
+                className="px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center gap-1 transition-colors"
+              >
+                <Maximize2 className="w-3.5 h-3.5 text-blue-600" />
+                <span className="hidden sm:inline">Fit Markers</span>
+              </button>
+            )}
           </div>
         </div>
 
         {/* Quick Jump City Buttons */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs no-scrollbar pt-1 border-t border-slate-100">
           <span className="text-[11px] font-semibold text-slate-500 whitespace-nowrap mr-1">
-            Quick Cities:
+            Quick Jurisdictions:
           </span>
           {QUICK_CITIES.map(q => {
             const isSelected = selectedCity.toLowerCase() === q.city.toLowerCase();
@@ -513,16 +534,24 @@ export const ComplaintMap: React.FC<ComplaintMapProps> = ({
 
       {/* ZERO COMPLAINTS EMPTY STATE BANNER */}
       {cityStats.total === 0 && selectedCity !== 'All Cities' && (
-        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3 text-xs text-blue-900">
-          <Info className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
-          <div>
-            <span className="font-bold block text-sm mb-0.5">
-              No Complaints Reported Yet in {selectedCity}
-            </span>
-            <p className="text-blue-800">
-              The municipal geographic map is active and centered on {selectedCity}. As soon as citizens in this area submit reports, they will immediately appear on this map.
-            </p>
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start justify-between gap-3 text-xs text-blue-900">
+          <div className="flex items-start gap-3">
+            <Info className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+            <div>
+              <span className="font-bold block text-sm mb-0.5">
+                No Grievances Reported in {selectedCity}
+              </span>
+              <p className="text-blue-800">
+                The municipal GIS map is centered on {selectedCity}. This area is currently clear of reported civic hazards.
+              </p>
+            </div>
           </div>
+          <button
+            onClick={() => onSelectCity('All Cities')}
+            className="px-3 py-1.5 bg-blue-600 text-white rounded-lg font-semibold whitespace-nowrap hover:bg-blue-700 transition-colors shadow-xs"
+          >
+            View All Cities
+          </button>
         </div>
       )}
 
@@ -530,7 +559,7 @@ export const ComplaintMap: React.FC<ComplaintMapProps> = ({
       <div className="relative rounded-2xl overflow-hidden border border-slate-300 shadow-md">
         <div
           ref={mapContainerRef}
-          className="w-full h-[520px] bg-slate-100 z-10"
+          className="w-full h-[540px] bg-slate-100 z-10"
         />
 
         {/* Map Legend Overlay */}

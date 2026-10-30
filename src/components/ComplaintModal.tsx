@@ -1,6 +1,8 @@
 /**
  * CivicPulse AI - Municipal Complaint Management Modal
- * Detailed inspection, AI Action Brief, duplicate warnings, manual priority override, and audit history.
+ * Strict role-based projection:
+ * - Admin: Full triage, priority override with mandatory justification, department routing, private notes, resolution summary.
+ * - Citizen: Clean read-only inspection of evidence, AI intelligence summary, and public status updates. Internal notes are strictly hidden!
  */
 
 import React, { useState } from 'react';
@@ -22,6 +24,8 @@ import {
   MapPin,
   Flame,
   Check,
+  History,
+  FileText,
 } from 'lucide-react';
 import { Complaint, ComplaintStatus, DepartmentName, PriorityLevel, User } from '../types/index.ts';
 import { updateComplaint } from '../services/api.ts';
@@ -61,6 +65,8 @@ export const ComplaintModal: React.FC<ComplaintModalProps> = ({
 }) => {
   if (!complaint) return null;
 
+  const isAdmin = currentUser?.role === 'admin';
+
   const [selectedStatus, setSelectedStatus] = useState<ComplaintStatus>(complaint.status);
   const [selectedDepartment, setSelectedDepartment] = useState<DepartmentName>(
     complaint.assignedDepartment || complaint.aiAnalysis.suggestedDepartment
@@ -79,9 +85,12 @@ export const ComplaintModal: React.FC<ComplaintModalProps> = ({
 
   const [saving, setSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'ai-brief' | 'actions' | 'audit'>('overview');
+
+  // Default tab based on role
+  const [activeTab, setActiveTab] = useState<string>('overview');
 
   const handleSave = async () => {
+    if (!isAdmin) return;
     setSaving(true);
     setSuccessMessage(null);
 
@@ -137,7 +146,7 @@ export const ComplaintModal: React.FC<ComplaintModalProps> = ({
         {/* Modal Header */}
         <div className="bg-slate-900 text-white p-5 sm:p-6 relative flex flex-wrap items-center justify-between gap-3 border-b border-slate-800">
           <div>
-            <div className="flex items-center gap-2 mb-1.5">
+            <div className="flex items-center gap-2 mb-1.5 flex-wrap">
               <span className="font-mono text-xs font-extrabold text-blue-400 bg-blue-950/80 px-2.5 py-1 rounded border border-blue-800">
                 {complaint.id}
               </span>
@@ -157,6 +166,17 @@ export const ComplaintModal: React.FC<ComplaintModalProps> = ({
               <span className="text-xs px-2.5 py-0.5 rounded bg-slate-800 text-slate-300 font-medium">
                 {complaint.category}
               </span>
+              <span
+                className={`text-xs px-2.5 py-0.5 rounded-full font-bold ${
+                  complaint.status === 'Resolved'
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                    : complaint.status === 'In Progress'
+                    ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40'
+                    : 'bg-slate-700 text-slate-300'
+                }`}
+              >
+                {complaint.status}
+              </span>
             </div>
             <h2 className="text-lg sm:text-xl font-bold tracking-tight text-white line-clamp-2">
               {complaint.title}
@@ -172,10 +192,11 @@ export const ComplaintModal: React.FC<ComplaintModalProps> = ({
         </div>
 
         {/* Modal Subnav Tabs */}
-        <div className="flex border-b border-slate-200 bg-slate-50 px-6 text-xs font-semibold">
+        <div className="flex border-b border-slate-200 bg-slate-50 px-6 text-xs font-semibold overflow-x-auto">
+          {/* Overview Tab (Both) */}
           <button
             onClick={() => setActiveTab('overview')}
-            className={`py-3 px-3 border-b-2 transition-colors ${
+            className={`py-3 px-3 border-b-2 whitespace-nowrap transition-colors ${
               activeTab === 'overview'
                 ? 'border-blue-600 text-blue-700 font-bold'
                 : 'border-transparent text-slate-600 hover:text-slate-900'
@@ -183,42 +204,67 @@ export const ComplaintModal: React.FC<ComplaintModalProps> = ({
           >
             Overview & Evidence
           </button>
+
+          {/* AI Intelligence (Both) */}
           <button
             onClick={() => setActiveTab('ai-brief')}
-            className={`py-3 px-3 border-b-2 transition-colors flex items-center gap-1.5 ${
+            className={`py-3 px-3 border-b-2 whitespace-nowrap transition-colors flex items-center gap-1.5 ${
               activeTab === 'ai-brief'
                 ? 'border-blue-600 text-blue-700 font-bold'
                 : 'border-transparent text-slate-600 hover:text-slate-900'
             }`}
           >
             <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
-            <span>AI Intelligence & Brief</span>
-            {complaint.aiAnalysis.duplicates.length > 0 && (
+            <span>AI Intelligence & Routing</span>
+            {complaint.aiAnalysis.duplicates && complaint.aiAnalysis.duplicates.length > 0 && (
               <span className="w-2 h-2 rounded-full bg-amber-500" />
             )}
           </button>
-          <button
-            onClick={() => setActiveTab('actions')}
-            className={`py-3 px-3 border-b-2 transition-colors flex items-center gap-1.5 ${
-              activeTab === 'actions'
-                ? 'border-blue-600 text-blue-700 font-bold'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Building2 className="w-3.5 h-3.5 text-blue-600" />
-            <span>Administrative Actions & Notes</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('audit')}
-            className={`py-3 px-3 border-b-2 transition-colors flex items-center gap-1.5 ${
-              activeTab === 'audit'
-                ? 'border-blue-600 text-blue-700 font-bold'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Clock className="w-3.5 h-3.5 text-slate-500" />
-            <span>Audit History ({complaint.statusHistory.length})</span>
-          </button>
+
+          {/* Citizen: Public Progress Updates Tab */}
+          {!isAdmin && (
+            <button
+              onClick={() => setActiveTab('status-timeline')}
+              className={`py-3 px-3 border-b-2 whitespace-nowrap transition-colors flex items-center gap-1.5 ${
+                activeTab === 'status-timeline'
+                  ? 'border-blue-600 text-blue-700 font-bold'
+                  : 'border-transparent text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <History className="w-3.5 h-3.5 text-blue-600" />
+              <span>Status Timeline ({complaint.statusHistory.length})</span>
+            </button>
+          )}
+
+          {/* Admin Only: Actions Tab */}
+          {isAdmin && (
+            <button
+              onClick={() => setActiveTab('actions')}
+              className={`py-3 px-3 border-b-2 whitespace-nowrap transition-colors flex items-center gap-1.5 ${
+                activeTab === 'actions'
+                  ? 'border-blue-600 text-blue-700 font-bold'
+                  : 'border-transparent text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Building2 className="w-3.5 h-3.5 text-blue-600" />
+              <span>Administrative Actions & Notes</span>
+            </button>
+          )}
+
+          {/* Admin Only: Audit History Tab */}
+          {isAdmin && (
+            <button
+              onClick={() => setActiveTab('audit')}
+              className={`py-3 px-3 border-b-2 whitespace-nowrap transition-colors flex items-center gap-1.5 ${
+                activeTab === 'audit'
+                  ? 'border-blue-600 text-blue-700 font-bold'
+                  : 'border-transparent text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Clock className="w-3.5 h-3.5 text-slate-500" />
+              <span>Audit History ({complaint.statusHistory.length})</span>
+            </button>
+          )}
         </div>
 
         {/* Modal Scrollable Body */}
@@ -259,6 +305,9 @@ export const ComplaintModal: React.FC<ComplaintModalProps> = ({
                           Landmark: <strong>{complaint.location.landmark}</strong>
                         </p>
                       )}
+                      <p className="text-slate-500 text-[11px] mt-0.5">
+                        Municipality: <strong>{complaint.municipality}</strong>
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -296,6 +345,23 @@ export const ComplaintModal: React.FC<ComplaintModalProps> = ({
                   />
                 </div>
               )}
+
+              {/* Resolution Card if resolved */}
+              {complaint.resolutionDetails && (
+                <div className="p-4 bg-emerald-50 rounded-xl border border-emerald-200 text-emerald-950 space-y-2">
+                  <div className="flex items-center gap-2 font-bold text-sm text-emerald-900">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    <span>Resolution Summary</span>
+                  </div>
+                  <p className="text-xs text-emerald-800 leading-relaxed">
+                    {complaint.resolutionDetails.resolutionSummary}
+                  </p>
+                  <div className="flex items-center justify-between text-[11px] text-emerald-700 pt-1 border-t border-emerald-200/60 font-medium">
+                    <span>Resolved by: <strong>{complaint.resolutionDetails.resolvedBy}</strong></span>
+                    <span>Date: {new Date(complaint.resolutionDetails.resolvedAt).toLocaleString()}</span>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -316,6 +382,21 @@ export const ComplaintModal: React.FC<ComplaintModalProps> = ({
                   {new Date(complaint.aiAnalysis.analysisTimestamp).toLocaleTimeString()}
                 </span>
               </div>
+
+              {/* Public Safety Warning */}
+              {complaint.aiAnalysis.isUrgentPublicSafety && (
+                <div className="p-3.5 bg-red-50 border-2 border-red-300 rounded-xl text-red-950 flex items-start gap-2.5">
+                  <Flame className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                  <div>
+                    <h4 className="font-bold text-xs text-red-900">Urgent Public Safety Hazard Flagged</h4>
+                    <p className="text-xs text-red-800 mt-0.5">
+                      {complaint.aiAnalysis.safetyAlerts && complaint.aiAnalysis.safetyAlerts.length > 0
+                        ? complaint.aiAnalysis.safetyAlerts[0]
+                        : 'Immediate hazard to pedestrian and vehicular traffic. Requires same-day intervention.'}
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {/* 100-Point Explainable Score Breakdown */}
               <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-3">
@@ -364,8 +445,8 @@ export const ComplaintModal: React.FC<ComplaintModalProps> = ({
                 </p>
               </div>
 
-              {/* Duplicate Warnings (Part 3 Requirement 3) */}
-              {complaint.aiAnalysis.duplicates.length > 0 && (
+              {/* Duplicate Warnings */}
+              {complaint.aiAnalysis.duplicates && complaint.aiAnalysis.duplicates.length > 0 && (
                 <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-4">
                   <div className="flex items-center gap-2 text-amber-900 font-bold text-xs uppercase tracking-wider mb-2">
                     <AlertTriangle className="w-4 h-4 text-amber-600" />
@@ -400,7 +481,7 @@ export const ComplaintModal: React.FC<ComplaintModalProps> = ({
                 </div>
               )}
 
-              {/* AI-Generated Action Brief (Part 3 Requirement 4) */}
+              {/* AI-Generated Action Brief */}
               <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-200 space-y-2.5">
                 <span className="font-bold text-blue-900 text-xs uppercase tracking-wider flex items-center gap-1.5">
                   <Sparkles className="w-3.5 h-3.5 text-blue-600" />
@@ -433,8 +514,58 @@ export const ComplaintModal: React.FC<ComplaintModalProps> = ({
             </div>
           )}
 
-          {/* TAB 3: ADMINISTRATIVE ACTIONS */}
-          {activeTab === 'actions' && (
+          {/* CITIZEN TAB: STATUS TIMELINE & PUBLIC UPDATES */}
+          {!isAdmin && activeTab === 'status-timeline' && (
+            <div className="space-y-6 text-xs text-slate-700">
+              {/* Public Updates Feed */}
+              <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-3">
+                <span className="font-bold text-slate-900 text-xs uppercase tracking-wider block">
+                  Public Progress Updates
+                </span>
+                {complaint.publicUpdates && complaint.publicUpdates.length > 0 ? (
+                  <div className="space-y-3">
+                    {complaint.publicUpdates.map(u => (
+                      <div key={u.id} className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                        <p className="text-slate-800 font-medium mb-1">{u.updateText}</p>
+                        <div className="flex items-center justify-between text-[10px] text-slate-400">
+                          <span>{u.author}</span>
+                          <span>{new Date(u.timestamp).toLocaleString()}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-slate-500 italic">No public updates posted yet.</p>
+                )}
+              </div>
+
+              {/* Status Change Log */}
+              <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-3">
+                <span className="font-bold text-slate-900 text-xs uppercase tracking-wider block">
+                  Status Timeline
+                </span>
+                <div className="space-y-2">
+                  {complaint.statusHistory.map((h, i) => (
+                    <div key={i} className="flex gap-2.5 items-start">
+                      <div className="w-2 h-2 rounded-full bg-blue-600 mt-1.5 shrink-0" />
+                      <div className="flex-1 bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+                        <div className="flex items-center justify-between font-semibold text-slate-800">
+                          <span>Status: {h.status}</span>
+                          <span className="text-[10px] text-slate-400 font-mono">
+                            {new Date(h.timestamp).toLocaleString()}
+                          </span>
+                        </div>
+                        {h.note && <p className="text-[11px] text-slate-600 mt-0.5">{h.note}</p>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ADMIN ONLY TAB 3: ADMINISTRATIVE ACTIONS */}
+          {isAdmin && activeTab === 'actions' && (
             <div className="space-y-5 text-xs text-slate-700">
               {/* 1. Workflow Status */}
               <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
@@ -495,7 +626,7 @@ export const ComplaintModal: React.FC<ComplaintModalProps> = ({
                 </div>
               </div>
 
-              {/* 3. Priority Manual Override (Part 3 Requirement 2) */}
+              {/* 3. Priority Manual Override with Recorded Reason */}
               <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-slate-900 text-xs uppercase tracking-wider">
@@ -563,7 +694,7 @@ export const ComplaintModal: React.FC<ComplaintModalProps> = ({
               <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
                 <span className="font-bold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5">
                   <MessageSquare className="w-3.5 h-3.5 text-blue-600" />
-                  4. Add Public Citizen Progress Update (Visible on Citizen Portal)
+                  4. Add Public Progress Update (Visible on Citizen Portal)
                 </span>
                 <input
                   type="text"
@@ -608,14 +739,14 @@ export const ComplaintModal: React.FC<ComplaintModalProps> = ({
             </div>
           )}
 
-          {/* TAB 4: AUDIT HISTORY & INTERNAL NOTES */}
-          {activeTab === 'audit' && (
+          {/* ADMIN ONLY TAB 4: AUDIT HISTORY & INTERNAL NOTES */}
+          {isAdmin && activeTab === 'audit' && (
             <div className="space-y-5 text-xs text-slate-700">
               {/* Private Notes Section */}
               <div className="p-4 bg-amber-50/40 rounded-xl border border-amber-200">
                 <span className="font-bold text-amber-900 text-xs uppercase tracking-wider block mb-3 flex items-center gap-1.5">
                   <Lock className="w-3.5 h-3.5 text-amber-700" />
-                  Private Municipal Internal Notes Log
+                  Private Municipal Internal Notes Log (Internal Use Only)
                 </span>
 
                 {complaint.internalNotes && complaint.internalNotes.length > 0 ? (
@@ -672,15 +803,21 @@ export const ComplaintModal: React.FC<ComplaintModalProps> = ({
             Close
           </button>
 
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={saving}
-            className="py-2.5 px-6 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold text-xs transition-colors shadow-xs flex items-center gap-2"
-          >
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-            <span>Save Municipal Changes</span>
-          </button>
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving}
+              className="py-2.5 px-6 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold text-xs transition-colors shadow-xs flex items-center gap-2"
+            >
+              {saving ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Check className="w-4 h-4 stroke-[3]" />
+              )}
+              <span>Save Administrative Changes</span>
+            </button>
+          )}
         </div>
       </div>
     </div>

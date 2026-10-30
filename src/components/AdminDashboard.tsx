@@ -81,7 +81,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* CRITICAL ATTENTION BANNER (If any Critical unresolved) */}
       {criticalPending.length > 0 && (
-        <div className="bg-red-50 border-2 border-red-300 rounded-2xl p-5 shadow-xs animate-pulse-slow">
+        <div className="bg-red-50 border-2 border-red-300 rounded-2xl p-5 shadow-xs">
           <div className="flex items-start justify-between gap-3 mb-3">
             <div className="flex items-center gap-2.5 text-red-900 font-extrabold text-sm sm:text-base">
               <AlertOctagon className="w-6 h-6 text-red-600 shrink-0" />

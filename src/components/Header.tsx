@@ -1,5 +1,7 @@
 /**
  * CivicPulse AI - Application Header & Navigation
+ * Provides responsive navigation, jurisdiction banner, one-click role switching for demo evaluation,
+ * and quick demo dataset reset.
  */
 
 import React from 'react';
@@ -15,11 +17,13 @@ import {
   RotateCcw,
   LogOut,
   Sparkles,
+  User,
+  ListOrdered,
 } from 'lucide-react';
-import { User } from '../types/index.ts';
+import { User as UserType } from '../types/index.ts';
 
 interface HeaderProps {
-  currentUser: User | null;
+  currentUser: UserType | null;
   activeTab: string;
   setActiveTab: (tab: string) => void;
   onOpenAuth: () => void;
@@ -63,7 +67,7 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex items-center gap-3 text-slate-400">
           <button
             onClick={onResetDemo}
-            title="Reset to 35+ Karnataka demo complaints"
+            title="Reset to 30+ Karnataka demo complaints"
             className="flex items-center gap-1 hover:text-amber-400 transition-colors text-[11px]"
           >
             <RotateCcw className="w-3 h-3" />
@@ -100,7 +104,7 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex items-center justify-between h-16">
           {/* Logo & Platform Name */}
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center shadow-lg shadow-blue-500/20">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center shadow-lg shadow-blue-500/20">
               <ShieldAlert className="w-6 h-6 text-white" />
             </div>
             <div>
@@ -172,7 +176,7 @@ export const Header: React.FC<HeaderProps> = ({
               <>
                 <button
                   onClick={() => setActiveTab('submit')}
-                  className={`px-3.5 py-2 rounded-lg text-xs sm:text-sm font-semibold flex items-center gap-1.5 transition-all ${
+                  className={`px-3 py-2 rounded-lg text-xs sm:text-sm font-semibold flex items-center gap-1.5 transition-all ${
                     activeTab === 'submit'
                       ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-400/30'
                       : 'text-slate-300 hover:bg-slate-800 hover:text-white'
@@ -182,6 +186,17 @@ export const Header: React.FC<HeaderProps> = ({
                   <span>Report Issue</span>
                 </button>
                 <button
+                  onClick={() => setActiveTab('my-complaints')}
+                  className={`px-3 py-2 rounded-lg text-xs sm:text-sm font-medium flex items-center gap-1.5 transition-all ${
+                    activeTab === 'my-complaints'
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                  }`}
+                >
+                  <ListOrdered className="w-4 h-4 text-blue-400" />
+                  <span>My Grievances</span>
+                </button>
+                <button
                   onClick={() => setActiveTab('track')}
                   className={`px-3 py-2 rounded-lg text-xs sm:text-sm font-medium flex items-center gap-1.5 transition-all ${
                     activeTab === 'track'
@@ -189,7 +204,7 @@ export const Header: React.FC<HeaderProps> = ({
                       : 'text-slate-300 hover:bg-slate-800 hover:text-white'
                   }`}
                 >
-                  <Search className="w-4 h-4" />
+                  <Search className="w-4 h-4 text-amber-400" />
                   <span>Track Status</span>
                 </button>
                 <button
@@ -206,12 +221,12 @@ export const Header: React.FC<HeaderProps> = ({
               </>
             )}
 
-            {/* Role Switcher Button for Instant Demo Review */}
+            {/* Quick One-Click Role Switcher for Hackathon Judges & Testers */}
             <div className="ml-2 pl-2 border-l border-slate-800">
               {isAdmin ? (
                 <button
                   onClick={() => {
-                    const citizenUser: User = {
+                    const citizenUser: UserType = {
                       id: 'usr_citizen_1',
                       name: 'Deepak Rao',
                       email: 'citizen1@demo.com',
@@ -220,7 +235,7 @@ export const Header: React.FC<HeaderProps> = ({
                     localStorage.setItem('civicpulse_current_user', JSON.stringify(citizenUser));
                     window.location.reload();
                   }}
-                  className="px-2.5 py-1.5 rounded text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors"
+                  className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors shadow-2xs"
                   title="Switch to Citizen Portal view"
                 >
                   Switch to Citizen View
@@ -228,7 +243,7 @@ export const Header: React.FC<HeaderProps> = ({
               ) : (
                 <button
                   onClick={() => {
-                    const adminUser: User = {
+                    const adminUser: UserType = {
                       id: 'usr_admin_all',
                       name: 'Municipal Admin',
                       email: 'admin',
@@ -239,7 +254,7 @@ export const Header: React.FC<HeaderProps> = ({
                     localStorage.setItem('civicpulse_current_user', JSON.stringify(adminUser));
                     window.location.reload();
                   }}
-                  className="px-2.5 py-1.5 rounded text-[11px] font-semibold bg-blue-900/40 hover:bg-blue-900/60 text-blue-300 border border-blue-700/60 transition-colors"
+                  className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-blue-900/40 hover:bg-blue-900/60 text-blue-300 border border-blue-700/60 transition-colors shadow-2xs"
                   title="Switch to Municipal Admin Portal"
                 >
                   Municipal Admin Login

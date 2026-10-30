@@ -1,9 +1,10 @@
 /**
  * CivicPulse AI - Citizen Complaint Submission Form
- * Designed for rapid < 1 minute submission with Gemini AI pre-analysis preview.
+ * Designed for rapid < 1 minute submission with Gemini AI pre-analysis preview,
+ * real geocoding, searchable district/city selection, and demo presets.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Send,
   Upload,
@@ -17,9 +18,16 @@ import {
   Loader2,
   Building,
   Info,
+  Search,
+  X,
+  Crosshair,
+  Image as ImageIcon,
+  Flame,
+  Check,
 } from 'lucide-react';
 import { ComplaintCategory, AIAnalysisResult, Complaint, User } from '../types/index.ts';
-import { analyzeDraft, submitComplaint } from '../services/api.ts';
+import { analyzeDraft, submitComplaint, geocodeAddressApi } from '../services/api.ts';
+import { KARNATAKA_DISTRICTS, detectCategoryFromText } from '../utils/civicClassifier.ts';
 
 interface ComplaintFormProps {
   currentUser: User | null;
@@ -40,31 +48,69 @@ const CATEGORIES: ComplaintCategory[] = [
   'Other civic problems',
 ];
 
-const COMMON_CITIES = [
-  'Haveri',
-  'Bengaluru',
-  'Mysuru',
-  'Hubballi',
-  'Dharwad',
-  'Mangaluru',
-  'Belagavi',
-  'Ranebennur',
-  'Davanagere',
-  'Shivamogga',
+// Quick Demo Presets for Testing & Hackathon Evaluation
+const DEMO_PRESETS = [
+  {
+    label: '⚡ Live Wire Hazard (Critical)',
+    category: 'Electrical hazards' as ComplaintCategory,
+    title: 'Exposed 440V live electric distribution wire hanging near school',
+    description:
+      'High voltage cable snapped during thunderstorm and is hanging barely 4 feet above the pedestrian walkway near school gate. Extreme electrocution risk to students and commuters.',
+    city: 'Haveri',
+    area: 'Old Bus Stand Road, Ward 4',
+    landmark: 'Opposite Girls High School Entrance',
+    lat: 14.7972,
+    lng: 75.3995,
+  },
+  {
+    label: '🕳️ Open Manhole & Sewage (Critical)',
+    category: 'Drainage and sewage' as ComplaintCategory,
+    title: 'Uncovered open manhole with overflowing foul sewage on main road',
+    description:
+      'Heavy concrete manhole lid broken and missing for 3 days. Black stinking sewage overflowing into nearby shops and residential doorways. Deep fall hazard for pedestrians at night.',
+    city: 'Haveri',
+    area: 'Shivaji Nagar Main Road',
+    landmark: 'Near KEB Substation Junction',
+    lat: 14.7912,
+    lng: 75.4041,
+  },
+  {
+    label: '🚗 Severe Road Crater / Potholes (High)',
+    category: 'Roads and potholes' as ComplaintCategory,
+    title: 'Multiple deep craters and broken asphalt on arterial market road',
+    description:
+      'Subsurface road collapse creating two 1.5-foot deep potholes across both lanes. Two two-wheeler riders suffered falls yesterday. Traffic severely jammed.',
+    city: 'Haveri',
+    area: 'APMC Market Yard Road',
+    landmark: 'Near Grain Merchant Warehouse',
+    lat: 14.8021,
+    lng: 75.3912,
+  },
+  {
+    label: '🗑️ Garbage Dump Overflow (Medium)',
+    category: 'Garbage and waste management' as ComplaintCategory,
+    title: 'Uncollected municipal garbage heap overflowing onto pedestrian footpath',
+    description:
+      'Solid waste has not been collected for over 5 days. Rotten organic waste spreading foul stench, attracting stray cattle and street dogs. Threat of vector-borne illness.',
+    city: 'Bengaluru Urban',
+    area: 'Indiranagar 100ft Road',
+    landmark: 'Near Metro Pillar 84',
+    lat: 12.9719,
+    lng: 77.6412,
+  },
+  {
+    label: '💧 Drinking Water Pipeline Burst (High)',
+    category: 'Water supply' as ComplaintCategory,
+    title: 'Major drinking water pipeline burst flooding residential lane',
+    description:
+      'High-pressure drinking water supply pipeline ruptured under the street. Thousands of liters of potable water flooding the street while water supply to 50 houses is halted.',
+    city: 'Mysuru',
+    area: 'Devaraja Market Ward',
+    landmark: 'Near Clock Tower',
+    lat: 12.3112,
+    lng: 76.6521,
+  },
 ];
-
-const CITY_COORDS: Record<string, { lat: number; lng: number }> = {
-  haveri: { lat: 14.7954, lng: 75.3986 },
-  bengaluru: { lat: 12.9716, lng: 77.5946 },
-  mysuru: { lat: 12.2958, lng: 76.6394 },
-  hubballi: { lat: 15.3647, lng: 75.124 },
-  dharwad: { lat: 15.4589, lng: 75.0078 },
-  mangaluru: { lat: 12.9141, lng: 74.856 },
-  belagavi: { lat: 15.8497, lng: 74.4977 },
-  ranebennur: { lat: 14.6225, lng: 75.6219 },
-  davanagere: { lat: 14.4644, lng: 75.9218 },
-  shivamogga: { lat: 13.9299, lng: 75.5681 },
-};
 
 export const ComplaintForm: React.FC<ComplaintFormProps> = ({
   currentUser,
@@ -79,12 +125,63 @@ export const ComplaintForm: React.FC<ComplaintFormProps> = ({
   const [area, setArea] = useState('');
   const [landmark, setLandmark] = useState('');
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+
+  // Geocoding Coordinates State
+  const [coords, setCoords] = useState<{ lat: number; lng: number }>({ lat: 14.7954, lng: 75.3986 });
+  const [isGeocoding, setIsGeocoding] = useState(false);
+  const [geocodedLabel, setGeocodedLabel] = useState<string | null>(null);
+
+  // District Search Dropdown State
+  const [citySearchQuery, setCitySearchQuery] = useState('');
+  const [isCityDropdownOpen, setIsCityDropdownOpen] = useState(false);
+  const cityDropdownRef = useRef<HTMLDivElement>(null);
+
   const [submitting, setSubmitting] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [aiPreview, setAiPreview] = useState<AIAnalysisResult | null>(null);
   const [submittedComplaint, setSubmittedComplaint] = useState<Complaint | null>(null);
   const [copiedId, setCopiedId] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Real-time Category Auto-detection
+  const detectedCategory = useMemo(() => {
+    const text = `${title} ${description}`.trim();
+    if (text.length < 8) return null;
+    return detectCategoryFromText(text);
+  }, [title, description]);
+
+  // Filtered district list for searchable dropdown
+  const filteredDistricts = useMemo(() => {
+    if (!citySearchQuery.trim()) return KARNATAKA_DISTRICTS;
+    const q = citySearchQuery.toLowerCase();
+    return KARNATAKA_DISTRICTS.filter(d => d.toLowerCase().includes(q));
+  }, [citySearchQuery]);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (cityDropdownRef.current && !cityDropdownRef.current.contains(e.target as Node)) {
+        setIsCityDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Geocode address when area/city changes (debounced)
+  const handleGeocodeLocation = async (areaText: string, cityName: string, landmarkText?: string) => {
+    if (!areaText.trim() && !cityName.trim()) return;
+    setIsGeocoding(true);
+    try {
+      const res = await geocodeAddressApi(areaText || 'Central Ward', cityName, landmarkText);
+      setCoords({ lat: res.lat, lng: res.lng });
+      setGeocodedLabel(`${res.lat.toFixed(4)}°N, ${res.lng.toFixed(4)}°E`);
+    } catch {
+      // Keep existing coords
+    } finally {
+      setIsGeocoding(false);
+    }
+  };
 
   // Handle Image Upload
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -111,8 +208,6 @@ export const ComplaintForm: React.FC<ComplaintFormProps> = ({
     setError(null);
     setAnalyzing(true);
     try {
-      const cityKey = city.toLowerCase().trim();
-      const coords = CITY_COORDS[cityKey] || { lat: 14.7954, lng: 75.3986 };
       const analysis = await analyzeDraft({
         title,
         description,
@@ -125,18 +220,32 @@ export const ComplaintForm: React.FC<ComplaintFormProps> = ({
         },
       });
       setAiPreview(analysis);
-    } catch (err: any) {
+    } catch {
       setError('AI pre-analysis was unable to process. You can still submit your complaint directly.');
     } finally {
       setAnalyzing(false);
     }
   };
 
+  // Load a demo preset for fast testing
+  const handleApplyPreset = (preset: typeof DEMO_PRESETS[0]) => {
+    setCategory(preset.category);
+    setTitle(preset.title);
+    setDescription(preset.description);
+    setCity(preset.city);
+    setArea(preset.area);
+    setLandmark(preset.landmark);
+    setCoords({ lat: preset.lat, lng: preset.lng });
+    setGeocodedLabel(`${preset.lat.toFixed(4)}°N, ${preset.lng.toFixed(4)}°E`);
+    setAiPreview(null);
+    setError(null);
+  };
+
   // Submit Complaint
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title || !description || !city || !area) {
-      setError('Please fill in all required fields (Category, Title, Description, City, Area).');
+      setError('Please fill in all required fields (Category, Title, Description, City/District, Area).');
       return;
     }
 
@@ -144,9 +253,6 @@ export const ComplaintForm: React.FC<ComplaintFormProps> = ({
     setSubmitting(true);
 
     try {
-      const cityKey = city.toLowerCase().trim();
-      const coords = CITY_COORDS[cityKey] || { lat: 14.7954, lng: 75.3986 };
-
       const complaint = await submitComplaint({
         title,
         description,
@@ -298,7 +404,7 @@ export const ComplaintForm: React.FC<ComplaintFormProps> = ({
             Report a Civic Grievance
           </h1>
           <p className="text-slate-500 text-xs sm:text-sm mt-1">
-            Submit road hazards, sewage spills, electrical dangers, or water issues. Powered by Gemini 3.8 Flash intelligence.
+            Submit road hazards, sewage spills, electrical dangers, or water issues. Evaluated with explainable AI scoring.
           </p>
         </div>
         {!currentUser && (
@@ -314,6 +420,29 @@ export const ComplaintForm: React.FC<ComplaintFormProps> = ({
         )}
       </div>
 
+      {/* QUICK PRESETS STRIP FOR HACKATHON DEMO */}
+      <div className="mb-6 bg-slate-900 p-4 rounded-2xl border border-slate-800 text-white shadow-sm">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs font-bold uppercase tracking-wider text-blue-400 flex items-center gap-1.5">
+            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+            <span>Instant Demo Presets (Click to autofill realistic civic scenarios)</span>
+          </span>
+          <span className="text-[10px] text-slate-400 hidden sm:inline">Hackathon Evaluation Helper</span>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {DEMO_PRESETS.map((p, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => handleApplyPreset(p)}
+              className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-blue-900/60 hover:text-blue-200 border border-slate-700 text-[11px] font-medium transition-all text-slate-300"
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main Form (2 cols) */}
         <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-200 p-6 sm:p-8">
@@ -327,9 +456,21 @@ export const ComplaintForm: React.FC<ComplaintFormProps> = ({
           <form onSubmit={handleSubmit} className="space-y-5">
             {/* 1. Category */}
             <div>
-              <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider mb-2">
-                1. Select Civic Category *
-              </label>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider">
+                  1. Select Civic Category *
+                </label>
+                {detectedCategory && detectedCategory !== category && (
+                  <button
+                    type="button"
+                    onClick={() => setCategory(detectedCategory)}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full hover:bg-indigo-100 transition-colors"
+                  >
+                    <Sparkles className="w-3 h-3 text-indigo-600" />
+                    <span>AI suggests: {detectedCategory} (Apply)</span>
+                  </button>
+                )}
+              </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {CATEGORIES.map(cat => {
                   const isSelected = category === cat;
@@ -390,32 +531,66 @@ export const ComplaintForm: React.FC<ComplaintFormProps> = ({
               />
             </div>
 
-            {/* 4. Location Details */}
+            {/* 4. Location Details & Searchable District */}
             <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
-              <span className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                <MapPin className="w-4 h-4 text-blue-600" />
-                4. Location & Municipal City *
-              </span>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                  <MapPin className="w-4 h-4 text-blue-600" />
+                  4. Location & District / City *
+                </span>
+                {geocodedLabel && (
+                  <span className="text-[10px] font-mono font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 flex items-center gap-1">
+                    <Check className="w-3 h-3 text-emerald-600" />
+                    <span>GPS: {geocodedLabel}</span>
+                  </span>
+                )}
+              </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
+                {/* Searchable District / City Selector */}
+                <div className="relative" ref={cityDropdownRef}>
                   <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                    City / Municipality *
+                    District / City (Searchable) *
                   </label>
-                  <select
-                    value={city}
-                    onChange={e => {
-                      setCity(e.target.value);
-                      setAiPreview(null);
-                    }}
-                    className="w-full px-3 py-2 text-xs font-medium border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-800"
-                  >
-                    {COMMON_CITIES.map(c => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={isCityDropdownOpen ? citySearchQuery : city}
+                      onChange={e => {
+                        setCitySearchQuery(e.target.value);
+                        setIsCityDropdownOpen(true);
+                      }}
+                      onFocus={() => {
+                        setCitySearchQuery('');
+                        setIsCityDropdownOpen(true);
+                      }}
+                      placeholder="Type district or city (e.g. Haveri, Mysuru)..."
+                      className="w-full px-3 py-2 text-xs font-medium border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-800 pr-8"
+                    />
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
+                  </div>
+
+                  {isCityDropdownOpen && (
+                    <div className="absolute left-0 right-0 top-full mt-1 max-h-52 overflow-y-auto bg-white rounded-lg border border-slate-300 shadow-lg z-50 py-1">
+                      {filteredDistricts.map(d => (
+                        <button
+                          key={d}
+                          type="button"
+                          onClick={() => {
+                            setCity(d);
+                            setIsCityDropdownOpen(false);
+                            handleGeocodeLocation(area, d, landmark);
+                          }}
+                          className={`w-full text-left px-3 py-1.5 text-xs hover:bg-blue-50 transition-colors flex items-center justify-between ${
+                            city === d ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-700'
+                          }`}
+                        >
+                          <span>{d}</span>
+                          {city === d && <Check className="w-3 h-3 text-blue-600" />}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 <div>
@@ -427,23 +602,43 @@ export const ComplaintForm: React.FC<ComplaintFormProps> = ({
                     required
                     value={area}
                     onChange={e => setArea(e.target.value)}
+                    onBlur={() => handleGeocodeLocation(area, city, landmark)}
                     placeholder="e.g. Old Bus Stand Road, Ward 4"
                     className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-800"
                   />
                 </div>
               </div>
 
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                  Landmark (Optional)
-                </label>
-                <input
-                  type="text"
-                  value={landmark}
-                  onChange={e => setLandmark(e.target.value)}
-                  placeholder="e.g. Opposite Bapuji College Gate, near water tank"
-                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-800"
-                />
+              <div className="flex flex-col sm:flex-row gap-2">
+                <div className="flex-1">
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                    Landmark (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={landmark}
+                    onChange={e => setLandmark(e.target.value)}
+                    onBlur={() => handleGeocodeLocation(area, city, landmark)}
+                    placeholder="e.g. Opposite Bapuji College Gate, near water tank"
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-800"
+                  />
+                </div>
+
+                <div className="sm:self-end">
+                  <button
+                    type="button"
+                    onClick={() => handleGeocodeLocation(area, city, landmark)}
+                    disabled={isGeocoding || !area}
+                    className="w-full sm:w-auto px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-1.5"
+                  >
+                    {isGeocoding ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-600" />
+                    ) : (
+                      <Crosshair className="w-3.5 h-3.5 text-blue-600" />
+                    )}
+                    <span>Locate GPS</span>
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -463,9 +658,10 @@ export const ComplaintForm: React.FC<ComplaintFormProps> = ({
                     <button
                       type="button"
                       onClick={() => setImagePreview(null)}
-                      className="absolute top-1 right-1 bg-red-600 text-white p-1 rounded-full text-xs shadow-md"
+                      className="absolute top-1 right-1 bg-red-600 text-white p-1 rounded-full text-xs shadow-md hover:bg-red-700 transition-colors"
+                      title="Remove image"
                     >
-                      ✕
+                      <X className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 ) : (
@@ -478,7 +674,7 @@ export const ComplaintForm: React.FC<ComplaintFormProps> = ({
                       type="file"
                       accept="image/*"
                       onChange={handleImageChange}
-                      className="mt-2 text-xs text-slate-500 file:mr-2 file:py-1 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                      className="mt-2 text-xs text-slate-500 file:mr-2 file:py-1 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer"
                     />
                   </div>
                 )}
@@ -550,9 +746,9 @@ export const ComplaintForm: React.FC<ComplaintFormProps> = ({
 
                 {/* Score Breakdown */}
                 <div className="grid grid-cols-2 gap-1.5 pt-2 border-t border-slate-800 text-[11px]">
-                  <div className="text-slate-400">Safety Impact: <span className="text-white font-mono">{aiPreview.priorityScore.safety}/35</span></div>
+                  <div className="text-slate-400">Safety: <span className="text-white font-mono">{aiPreview.priorityScore.safety}/35</span></div>
                   <div className="text-slate-400">Urgency: <span className="text-white font-mono">{aiPreview.priorityScore.urgency}/25</span></div>
-                  <div className="text-slate-400">Crowd Impact: <span className="text-white font-mono">{aiPreview.priorityScore.crowdImpact}/20</span></div>
+                  <div className="text-slate-400">Crowd: <span className="text-white font-mono">{aiPreview.priorityScore.crowdImpact}/20</span></div>
                   <div className="text-slate-400">Infrastructure: <span className="text-white font-mono">{aiPreview.priorityScore.infrastructureImpact}/20</span></div>
                 </div>
 
@@ -562,12 +758,25 @@ export const ComplaintForm: React.FC<ComplaintFormProps> = ({
                   <span className="font-semibold text-blue-300">{aiPreview.suggestedDepartment}</span>
                 </div>
 
+                {/* Public Safety Warning */}
+                {aiPreview.isUrgentPublicSafety && (
+                  <div className="pt-2 border-t border-slate-800">
+                    <div className="flex items-center gap-1 text-red-400 font-bold text-[11px] mb-1">
+                      <Flame className="w-3.5 h-3.5 text-red-500" />
+                      <span>Urgent Public Safety Risk Detected</span>
+                    </div>
+                    {aiPreview.safetyAlerts && aiPreview.safetyAlerts.length > 0 && (
+                      <p className="text-[10px] text-red-300 italic">{aiPreview.safetyAlerts[0]}</p>
+                    )}
+                  </div>
+                )}
+
                 {/* Duplicate Alert */}
-                {aiPreview.duplicates.length > 0 && (
+                {aiPreview.duplicates && aiPreview.duplicates.length > 0 && (
                   <div className="pt-2 border-t border-slate-800">
                     <div className="flex items-center gap-1 text-amber-400 font-bold text-[11px] mb-1">
                       <AlertTriangle className="w-3.5 h-3.5" />
-                      <span>Possible Duplicate Detected</span>
+                      <span>Possible Duplicate Detected ({aiPreview.duplicates[0].similarityScore}%)</span>
                     </div>
                     <div className="bg-amber-950/40 border border-amber-800/60 rounded p-2 text-[10px] text-amber-200">
                       Matches complaint <strong>{aiPreview.duplicates[0].complaintId}</strong>: {aiPreview.duplicates[0].reason}
@@ -577,7 +786,7 @@ export const ComplaintForm: React.FC<ComplaintFormProps> = ({
               </div>
             ) : (
               <div className="bg-slate-800/50 rounded-xl p-4 border border-dashed border-slate-700 text-center text-xs text-slate-400">
-                Click <strong>"Analyze with Gemini AI"</strong> or start typing to see instant civic intelligence preview.
+                Click <strong>"Analyze with Gemini AI"</strong> or select a preset to see instant civic intelligence preview.
               </div>
             )}
           </div>

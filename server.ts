@@ -17,7 +17,7 @@ import {
   updateComplaint,
 } from './src/server/db.ts';
 import { runGeminiAnalysis, runDeterministicAnalysis } from './src/server/intelligence.ts';
-import { searchCity } from './src/server/geocode.ts';
+import { searchCity, geocodeAddress } from './src/server/geocode.ts';
 import { Complaint, ComplaintCategory, ComplaintStatus, PriorityLevel, User } from './src/types/index.ts';
 
 dotenv.config();
@@ -147,6 +147,15 @@ app.post('/api/complaints', async (req: Request, res: Response) => {
 
     const currentComplaints = getComplaints({ userRole: 'admin' });
 
+    // Geocode area & city if coordinates missing or default
+    let lat = Number(location.lat);
+    let lng = Number(location.lng);
+    if (!lat || !lng || (lat === 14.7954 && location.city.toLowerCase() !== 'haveri')) {
+      const geo = await geocodeAddress(location.area, location.city, location.landmark);
+      lat = geo.lat;
+      lng = geo.lng;
+    }
+
     // Run AI analysis (Gemini 3.8 Flash with deterministic fallback)
     const aiAnalysis = await runGeminiAnalysis(
       title,
@@ -155,8 +164,8 @@ app.post('/api/complaints', async (req: Request, res: Response) => {
       {
         city: location.city,
         area: location.area,
-        lat: Number(location.lat) || 14.7954,
-        lng: Number(location.lng) || 75.3986,
+        lat,
+        lng,
       },
       currentComplaints
     );
@@ -174,8 +183,8 @@ app.post('/api/complaints', async (req: Request, res: Response) => {
         city: location.city.trim(),
         area: location.area.trim(),
         landmark: location.landmark?.trim(),
-        lat: Number(location.lat) || 14.7954,
-        lng: Number(location.lng) || 75.3986,
+        lat,
+        lng,
         address: location.address || `${location.area}, ${location.city}`,
       },
       imageUrl,
@@ -359,6 +368,15 @@ app.get('/api/geocode/search', async (req: Request, res: Response) => {
 
   const results = await searchCity(query);
   res.json({ results });
+});
+
+// GET precise geocoding for specific area and landmark
+app.get('/api/geocode/address', async (req: Request, res: Response) => {
+  const area = (req.query.area as string) || '';
+  const city = (req.query.city as string) || 'Haveri';
+  const landmark = (req.query.landmark as string) || '';
+  const result = await geocodeAddress(area, city, landmark);
+  res.json(result);
 });
 
 // GET municipal analytics

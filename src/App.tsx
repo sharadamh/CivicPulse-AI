@@ -8,6 +8,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Header } from './components/Header.tsx';
 import { AuthModal } from './components/AuthModal.tsx';
 import { ComplaintForm } from './components/ComplaintForm.tsx';
+import { CitizenPortalView } from './components/CitizenPortalView.tsx';
 import { ComplaintTracker } from './components/ComplaintTracker.tsx';
 import { AdminDashboard } from './components/AdminDashboard.tsx';
 import { ComplaintTable } from './components/ComplaintTable.tsx';
@@ -22,7 +23,7 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     const stored = getStoredUser();
     if (stored) return stored;
-    // Default to a demo citizen so the user has immediate access
+    // Default to a demo citizen so the evaluator has immediate access
     const defaultCitizen: User = {
       id: 'usr_citizen_1',
       name: 'Deepak Rao',
@@ -62,7 +63,7 @@ export default function App() {
 
   // Adjust default tab when role changes
   useEffect(() => {
-    if (isAdmin && (activeTab === 'submit' || activeTab === 'track')) {
+    if (isAdmin && (activeTab === 'submit' || activeTab === 'track' || activeTab === 'my-complaints')) {
       setActiveTab('admin-dashboard');
     } else if (!isAdmin && (activeTab === 'admin-dashboard' || activeTab === 'all-complaints' || activeTab === 'analytics')) {
       setActiveTab('submit');
@@ -79,7 +80,7 @@ export default function App() {
   };
 
   const handleResetDemo = async () => {
-    if (window.confirm('Reset all complaints to 35+ Karnataka demo complaints?')) {
+    if (window.confirm('Reset all complaints to 30+ Karnataka demo complaints?')) {
       setLoading(true);
       await resetDemoDataset();
       await loadComplaints();
@@ -148,6 +149,17 @@ export default function App() {
                   />
                 )}
 
+                {activeTab === 'my-complaints' && (
+                  <CitizenPortalView
+                    currentUser={currentUser}
+                    complaints={complaints}
+                    onOpenReportForm={() => setActiveTab('submit')}
+                    onTrackComplaint={handleTrackComplaint}
+                    onOpenComplaintModal={handleOpenComplaintModal}
+                    onOpenAuth={handleOpenAuth}
+                  />
+                )}
+
                 {activeTab === 'track' && (
                   <ComplaintTracker
                     initialComplaintId={trackingId}
@@ -184,7 +196,7 @@ export default function App() {
                   <AdminDashboard
                     complaints={complaints}
                     currentUser={currentUser}
-                    onViewComplaints={filter => {
+                    onViewComplaints={() => {
                       setActiveTab('all-complaints');
                     }}
                     onOpenMap={() => setActiveTab('map')}
